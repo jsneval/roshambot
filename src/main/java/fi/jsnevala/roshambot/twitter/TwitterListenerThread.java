@@ -12,6 +12,7 @@ import twitter4j.TwitterFactory;
 import twitter4j.User;
 import twitter4j.auth.AccessToken;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -32,13 +33,21 @@ public class TwitterListenerThread extends Thread {
     private static final long TWITTER_RATE_LIMIT_WINDOW_MS = TimeUnit.MILLISECONDS.convert(TWITTER_RATE_LIMIT_WINDOW_MINUTES, TimeUnit.MINUTES);
     private static final long SLEEP_INTERVAL_MS = TWITTER_RATE_LIMIT_WINDOW_MS / (TWITTER_RATE_LIMIT - 10);
 
-    private RoshamboAttackService roshamboAttackService;
+    private static final boolean DEBUG = true;
 
-    TwitterListenerThread(TwitterProperties properties, RoshamboAttackService roshamboAttackService) {
+    private RoshamboAttackService roshamboAttackService;
+    private RoshamboAttackCountService roshamboAttackCountService;
+    private MessagesProperties messagesProperties;
+
+    TwitterListenerThread(TwitterProperties twitterProperties, MessagesProperties messagesProperties, RoshamboAttackService roshamboAttackService, RoshamboAttackCountService roshamboAttackCountService) {
         this.roshamboAttackService = roshamboAttackService;
-        authenticateToTwitter(properties);
+        this.messagesProperties = messagesProperties;
+        this.roshamboAttackCountService = roshamboAttackCountService;
+        authenticateToTwitter(twitterProperties);
         this.start();
     }
+
+    // todo reply with "try to make up your mind" if multiple attacks are found in one tweet
 
     @Override
     public void run() {
@@ -61,20 +70,24 @@ public class TwitterListenerThread extends Thread {
         mentions.stream().filter(mention -> isCounterAttackNeeded(mention, lastUpdateMillis)).forEach(this::sendCounterAttack);
     }
 
-    private void sleepUntilNextUpdate() {
-        // TODO modify sleep time based on rate limit remaining
-
-        try {
-            TimeUnit.MILLISECONDS.sleep(SLEEP_INTERVAL_MS);
-        } catch (InterruptedException e) {
-            log.info("Sleep interrupted.", e);
+    private void sendCounterAttack(Status status) {
+        roshamboAttackCountService.clearIfExpired();
+        roshamboAttackCountService.storeAttack(status.getUser().getId());
+        if (roshamboAttackCountService.isAttackAllowed(status.getUser().getId())) {
+            RoshamboAttack counterAttack = roshamboAttackService.getAttack();
+            String attackFromStatus = getAttackFromStatus(status.getText());
+            if (attackFromStatus != null) {
+                String replyText = getReplyText(RoshamboAttack.valueOf(attackFromStatus.toUpperCase()), counterAttack);
+                tweetReply(status, replyText);
+            }
+        } else if (!roshamboAttackCountService.isLimitReachedNotificationSent(status.getUser().getId())) {
+            tweetReply(status, messagesProperties.getLimitReachedMessage());
         }
     }
 
-    private void sendCounterAttack(Status status) {
-        String counterAttack = roshamboAttackService.getAttack();
-        log.info(String.format("Received %s, attack with: %s", status.getText(), counterAttack));
-        StatusUpdate reply = new StatusUpdate(counterAttack);
+    private void tweetReply(Status status, String replyText) {
+        StatusUpdate reply = new StatusUpdate(replyText);
+        log.info(String.format("Received %s, reply with: %s", status.getText(), replyText));
 
         Thread t = new Thread(() -> {
             long randomWithinIntervalMillis = ThreadLocalRandom.current().nextLong(0, SLEEP_INTERVAL_MS);
@@ -91,7 +104,25 @@ public class TwitterListenerThread extends Thread {
             }
         });
 
-        t.start();
+        if (!DEBUG) {
+            t.start();
+        }
+    }
+
+    private String getReplyText(RoshamboAttack attackFromStatus, RoshamboAttack counterAttack) {
+        String replyText = "";
+        int result = counterAttack.getResultAgainst(attackFromStatus);
+        if (result == 0) {
+            int index = ThreadLocalRandom.current().nextInt(0, messagesProperties.getDrawMessages().size());
+            replyText = messagesProperties.getDrawMessages().get(index);
+        } else if (result < 0) {
+            int index = ThreadLocalRandom.current().nextInt(0, messagesProperties.getLoseMessages().size());
+            replyText = messagesProperties.getLoseMessages().get(index);
+        } else {
+            int index = ThreadLocalRandom.current().nextInt(0, messagesProperties.getWinMessages().size());
+            replyText = messagesProperties.getWinMessages().get(index);
+        }
+        return String.format("%s! %s", counterAttack, replyText);
     }
 
     private void authenticateToTwitter(TwitterProperties properties) {
@@ -112,24 +143,39 @@ public class TwitterListenerThread extends Thread {
     private boolean isCounterAttackNeeded(Status status, long lastUpdateMillis) {
         long statusTimeMillis = status.getCreatedAt().getTime();
 
-//        try {
-//            if (status.getUser().getId() != this.twitter.getId()) {
+        try {
+            if (DEBUG || (status.getUser().getId() != this.twitter.getId())) {
                 if (statusTimeMillis > lastUpdateMillis) {
-                    return isAttack(status.getText());
+                    String attack = getAttackFromStatus(status.getText());
+                    return attack != null;
                 }
-//            }
-//        } catch (TwitterException e) {
-//            log.error(String.format("Cannot parse text '%s'", status.getText()), e);
-//        }
+            }
+        } catch (TwitterException e) {
+            log.error(String.format("Cannot parse text '%s'", status.getText()), e);
+        }
         return false;
     }
 
-    private boolean isAttack(String text) {
-        List<String> regexAttacks = RoshamboAttacks.asList().stream().map(attack -> String.format("(^|\\W)%s($|\\W)", attack)).collect(Collectors.toList());
-        String regex = String.join("|", regexAttacks);
+    private String getAttackFromStatus(String text) {
+        List<String> regexAttacks = Arrays.stream(RoshamboAttack.values()).map(attack -> String.format("(^|\\W)(%s)($|\\W)", attack))
+            .collect(Collectors.toList());
+        String regex = String.format(".*(%s).*", String.join("|", regexAttacks));
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(text);
-        return matcher.find();
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return null;
+    }
+
+    private void sleepUntilNextUpdate() {
+        // TODO modify sleep time based on rate limit remaining
+
+        try {
+            TimeUnit.MILLISECONDS.sleep(SLEEP_INTERVAL_MS);
+        } catch (InterruptedException e) {
+            log.info("Sleep interrupted.", e);
+        }
     }
 
 }
