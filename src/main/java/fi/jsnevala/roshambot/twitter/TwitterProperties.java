@@ -18,7 +18,6 @@ class TwitterProperties {
     @Value("${twitter.access.token.secret}")
     private String accessTokenSecret;
 
-
     String getConsumerKey() {
         return consumerKey;
     }
@@ -27,11 +26,11 @@ class TwitterProperties {
         return consumerSecret;
     }
 
-    public String getAccessToken() {
+    String getAccessToken() {
         return accessToken;
     }
 
-    public String getAccessTokenSecret() {
+    String getAccessTokenSecret() {
         return accessTokenSecret;
     }
 }

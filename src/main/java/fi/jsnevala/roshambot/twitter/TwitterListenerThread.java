@@ -5,12 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import twitter4j.ResponseList;
 import twitter4j.Status;
-import twitter4j.StatusUpdate;
-import twitter4j.Twitter;
 import twitter4j.TwitterException;
-import twitter4j.TwitterFactory;
-import twitter4j.User;
-import twitter4j.auth.AccessToken;
 
 import java.util.Arrays;
 import java.util.List;
@@ -25,25 +20,17 @@ public class TwitterListenerThread extends Thread {
 
     private Logger log = LoggerFactory.getLogger(this.getClass());
 
-    private Twitter twitter;
 
-    private static final int TWITTER_RATE_LIMIT = 75;
-    private static final int TWITTER_RATE_LIMIT_WINDOW_MINUTES = 15;
-
-    private static final long TWITTER_RATE_LIMIT_WINDOW_MS = TimeUnit.MILLISECONDS.convert(TWITTER_RATE_LIMIT_WINDOW_MINUTES, TimeUnit.MINUTES);
-    private static final long SLEEP_INTERVAL_MS = TWITTER_RATE_LIMIT_WINDOW_MS / (TWITTER_RATE_LIMIT - 10);
-
-    private static final boolean DEBUG = true;
-
+    private TwitterService twitterService;
     private RoshamboAttackService roshamboAttackService;
     private RoshamboAttackCountService roshamboAttackCountService;
     private MessagesProperties messagesProperties;
 
-    TwitterListenerThread(TwitterProperties twitterProperties, MessagesProperties messagesProperties, RoshamboAttackService roshamboAttackService, RoshamboAttackCountService roshamboAttackCountService) {
+    TwitterListenerThread(TwitterService twitterService, MessagesProperties messagesProperties, RoshamboAttackService roshamboAttackService, RoshamboAttackCountService roshamboAttackCountService) {
+        this.twitterService = twitterService;
         this.roshamboAttackService = roshamboAttackService;
         this.messagesProperties = messagesProperties;
         this.roshamboAttackCountService = roshamboAttackCountService;
-        authenticateToTwitter(twitterProperties);
         this.start();
     }
 
@@ -66,7 +53,7 @@ public class TwitterListenerThread extends Thread {
     }
 
     private void processMentions(long lastUpdateMillis) throws TwitterException {
-        ResponseList<Status> mentions = twitter.getMentionsTimeline();
+        ResponseList<Status> mentions = twitterService.getMentionsTimeline();
         mentions.stream().filter(mention -> isCounterAttackNeeded(mention, lastUpdateMillis)).forEach(this::sendCounterAttack);
     }
 
@@ -78,39 +65,15 @@ public class TwitterListenerThread extends Thread {
             String attackFromStatus = getAttackFromStatus(status.getText());
             if (attackFromStatus != null) {
                 String replyText = getReplyText(RoshamboAttack.valueOf(attackFromStatus.toUpperCase()), counterAttack);
-                tweetReply(status, replyText);
+                twitterService.tweetReply(status, replyText);
             }
         } else if (!roshamboAttackCountService.isLimitReachedNotificationSent(status.getUser().getId())) {
-            tweetReply(status, messagesProperties.getLimitReachedMessage());
-        }
-    }
-
-    private void tweetReply(Status status, String replyText) {
-        StatusUpdate reply = new StatusUpdate(replyText);
-        log.info(String.format("Received %s, reply with: %s", status.getText(), replyText));
-
-        Thread t = new Thread(() -> {
-            long randomWithinIntervalMillis = ThreadLocalRandom.current().nextLong(0, SLEEP_INTERVAL_MS);
-            try {
-                TimeUnit.MILLISECONDS.sleep(randomWithinIntervalMillis);
-            } catch (InterruptedException e) {
-                log.info("Interrupted sleep.", e);
-            }
-            reply.setInReplyToStatusId(status.getId());
-            try {
-                twitter.updateStatus(reply);
-            } catch (TwitterException e) {
-                log.error(String.format("Cannot reply to '%s'", status.getText()), e);
-            }
-        });
-
-        if (!DEBUG) {
-            t.start();
+            twitterService.tweetReply(status, messagesProperties.getLimitReachedMessage());
         }
     }
 
     private String getReplyText(RoshamboAttack attackFromStatus, RoshamboAttack counterAttack) {
-        String replyText = "";
+        String replyText;
         int result = counterAttack.getResultAgainst(attackFromStatus);
         if (result == 0) {
             int index = ThreadLocalRandom.current().nextInt(0, messagesProperties.getDrawMessages().size());
@@ -125,26 +88,11 @@ public class TwitterListenerThread extends Thread {
         return String.format("%s! %s", counterAttack, replyText);
     }
 
-    private void authenticateToTwitter(TwitterProperties properties) {
-        twitter = TwitterFactory.getSingleton();
-        try {
-            twitter.setOAuthConsumer(properties.getConsumerKey(), properties.getConsumerSecret());
-            AccessToken accessToken = new AccessToken(properties.getAccessToken(), properties.getAccessTokenSecret());
-            twitter.setOAuthAccessToken(accessToken);
-            User user = twitter.verifyCredentials();
-            log.info(String.format("Authenticated to Twitter as %s (%s)", user.getScreenName(), user.getId()));
-        } catch (TwitterException e) {
-            if (e.getStatusCode() == 401) {
-                log.error("Unable to get the access token.", e);
-            }
-        }
-    }
-
     private boolean isCounterAttackNeeded(Status status, long lastUpdateMillis) {
         long statusTimeMillis = status.getCreatedAt().getTime();
 
         try {
-            if (DEBUG || (status.getUser().getId() != this.twitter.getId())) {
+            if (AppConstants.DEBUG || (status.getUser().getId() != twitterService.getUserId())) {
                 if (statusTimeMillis > lastUpdateMillis) {
                     String attack = getAttackFromStatus(status.getText());
                     return attack != null;
@@ -172,7 +120,7 @@ public class TwitterListenerThread extends Thread {
         // TODO modify sleep time based on rate limit remaining
 
         try {
-            TimeUnit.MILLISECONDS.sleep(SLEEP_INTERVAL_MS);
+            TimeUnit.MILLISECONDS.sleep(AppConstants.SLEEP_INTERVAL_MS);
         } catch (InterruptedException e) {
             log.info("Sleep interrupted.", e);
         }

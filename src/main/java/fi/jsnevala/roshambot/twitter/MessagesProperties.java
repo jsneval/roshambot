@@ -35,7 +35,7 @@ public class MessagesProperties {
         return Arrays.asList(drawMessages.split(";"));
     }
 
-    public String getLimitReachedMessage() {
+    String getLimitReachedMessage() {
         return limitReachedMessage;
     }
 }
