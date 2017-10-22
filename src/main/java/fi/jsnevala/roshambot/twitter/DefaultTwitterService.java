@@ -42,6 +42,7 @@ public class DefaultTwitterService implements TwitterService {
             reply.setInReplyToStatusId(status.getId());
             try {
                 twitter.updateStatus(reply);
+                log.info(String.format("Sent reply to '%s' (%s)", status.getText(), reply.getInReplyToStatusId()));
             } catch (TwitterException e) {
                 log.error(String.format("Cannot reply to '%s'", status.getText()), e);
             }

@@ -9,6 +9,6 @@ class AppConstants {
     private static final long TWITTER_RATE_LIMIT_WINDOW_MS = TimeUnit.MILLISECONDS.convert(TWITTER_RATE_LIMIT_WINDOW_MINUTES, TimeUnit.MINUTES);
     static final long SLEEP_INTERVAL_MS = TWITTER_RATE_LIMIT_WINDOW_MS / (TWITTER_RATE_LIMIT - 10);
 
-    static final boolean DEBUG = true;
+    static final boolean DEBUG = false;
 
 }

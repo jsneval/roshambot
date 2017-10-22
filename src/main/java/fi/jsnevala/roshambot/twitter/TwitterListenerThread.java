@@ -91,15 +91,9 @@ public class TwitterListenerThread extends Thread {
     private boolean isCounterAttackNeeded(Status status, long lastUpdateMillis) {
         long statusTimeMillis = status.getCreatedAt().getTime();
 
-        try {
-            if (AppConstants.DEBUG || (status.getUser().getId() != twitterService.getUserId())) {
-                if (statusTimeMillis > lastUpdateMillis) {
-                    String attack = getAttackFromStatus(status.getText());
-                    return attack != null;
-                }
-            }
-        } catch (TwitterException e) {
-            log.error(String.format("Cannot parse text '%s'", status.getText()), e);
+        if (statusTimeMillis > lastUpdateMillis) {
+            String attack = getAttackFromStatus(status.getText());
+            return attack != null;
         }
         return false;
     }
