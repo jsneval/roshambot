@@ -6,16 +6,16 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 class TwitterProperties {
 
-    @Value("${twitter.consumer.key}")
+    @Value("${TWITTER_CONSUMER_KEY}")
     private String consumerKey;
 
-    @Value("${twitter.consumer.secret}")
+    @Value("${TWITTER_CONSUMER_SECRET}")
     private String consumerSecret;
 
-    @Value("${twitter.access.token}")
+    @Value("${TWITTER_ACCESS_TOKEN}")
     private String accessToken;
 
-    @Value("${twitter.access.token.secret}")
+    @Value("${TWITTER_ACCESS_TOKEN_SECRET}")
     private String accessTokenSecret;
 
     String getConsumerKey() {

@@ -1,9 +1,9 @@
 .idea
 .gradle
+.env
 build
 gradle
 gradlew
 gradlew.bat
-application.properties
 logs
 
