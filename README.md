@@ -1,9 +1,9 @@
-# Project Title
+# Roshambot
 
-Roshambot
+Rock paper scissors on Twitter
 
 ## Description
 
-Rock paper scissors on Twitter
+Made with Spring Boot.
 
 
